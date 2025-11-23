@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <title>Inventario de Aires - Firebase</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <style>
+    body{font-family:Arial,Helvetica,sans-serif;background:#f4f4f4;padding:20px}
+    .card{background:#fff;padding:16px;border-radius:8px;max-width:920px;margin:12px auto}
+    input,button{padding:8px;margin:6px 0;width:100%}
+    table{width:100%;border-collapse:collapse;margin-top:12px}
+    th,td{padding:8px;border:1px solid #ddd}
+    th{background:#1976D2;color:#fff}
+    .row{display:flex;gap:12px}
+    .col{flex:1}
+    .small{width:140px}
+    .logout{background:#555;color:#fff;border:none;padding:8px;border-radius:6px}
+    .btn-edit{background:#FFA000;color:#fff;border:none;padding:6px;border-radius:4px}
+    .btn-delete{background:#D32F2F;color:#fff;border:none;padding:6px;border-radius:4px}
+  </style>
+</head>
+<body>
+
+<div id="auth-ui" class="card">
+  <h2 id="title">Iniciar sesión</h2>
+
+  <div id="form-login">
+    <input id="email" type="email" placeholder="Correo electrónico">
+    <input id="password" type="password" placeholder="Contraseña">
+    <button id="btn-login">Entrar</button>
+    <button id="btn-show-register">Crear cuenta</button>
+  </div>
+
+  <div id="form-register" style="display:none">
+    <input id="reg-email" type="email" placeholder="Correo electrónico">
+    <input id="reg-password" type="password" placeholder="Contraseña (min 6)">
+    <button id="btn-register">Registrar</button>
+    <button id="btn-show-login">Volver a login</button>
+  </div>
+</div>
+
+<div id="main" class="card" style="display:none">
+  <div style="display:flex;justify-content:space-between;align-items:center">
+    <h1>Inventario de Aires</h1>
+    <div>
+      <span id="user-email"></span>
+      <button class="logout" id="btn-logout">Cerrar sesión</button>
+    </div>
+  </div>
+
+  <div id="form" style="margin-top:12px">
+    <h3>Agregar / Editar Aire</h3>
+    <div class="row">
+      <div class="col"><input id="aire-id" placeholder="ID numérico"></div>
+      <div class="col"><input id="aire-marca" placeholder="Marca"></div>
+      <div class="col"><input id="aire-modelo" placeholder="Modelo"></div>
+      <div class="col small"><input id="aire-capacidad" placeholder="Capacidad (ton)"></div>
+      <div class="col small"><input id="aire-precio" placeholder="Precio"></div>
+      <div class="col small"><input id="aire-unidades" placeholder="Unidades"></div>
+    </div>
+    <div style="margin-top:8px">
+      <button id="btn-save">Guardar</button>
+      <button id="btn-clear">Limpiar</button>
+    </div>
+  </div>
+
+  <h3>Mis aires</h3>
+  <table>
+    <thead>
+      <tr><th>ID</th><th>Marca</th><th>Modelo</th><th>Capacidad</th><th>Precio</th><th>Unidades</th><th>Acciones</th></tr>
+    </thead>
+    <tbody id="tabla-aires"></tbody>
+  </table>
+</div>
+
+<!-- Firebase SDK (v9 modular) -->
+<script type="module">
+  // ====== REEMPLAZA ESTE firebaseConfig con TU configuración del proyecto ======
+  const firebaseConfig = {
+    apiKey: "TU_API_KEY",
+    authDomain: "TU_AUTH_DOMAIN",
+    projectId: "TU_PROJECT_ID",
+    storageBucket: "TU_STORAGE_BUCKET",
+    messagingSenderId: "TU_MESSAGING_SENDER_ID",
+    appId: "TU_APP_ID"
+  };
+  // ============================================================================
+
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-app.js";
+  import {
+    getAuth,
+    createUserWithEmailAndPassword,
+    signInWithEmailAndPassword,
+    signOut,
+    onAuthStateChanged
+  } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-auth.js";
+
+  import {
+    getFirestore,
+    collection,
+    addDoc,
+    query,
+    where,
+    onSnapshot,
+    orderBy,
+    doc,
+    updateDoc,
+    deleteDoc,
+    getDocs
+  } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore.js";
+
+  // Init
+  const app = initializeApp(firebaseConfig);
+  const auth = getAuth(app);
+  const db = getFirestore(app);
+
+  // DOM
+  const authUi = document.getElementById('auth-ui');
+  const loginForm = document.getElementById('form-login');
+  const regForm = document.getElementById('form-register');
+  const main = document.getElementById('main');
+  const userEmailSpan = document.getElementById('user-email');
+
+  // Buttons & inputs
+  const btnShowRegister = document.getElementById('btn-show-register');
+  const btnShowLogin = document.getElementById('btn-show-login');
+  const btnRegister = document.getElementById('btn-register');
+  const btnLogin = document.getElementById('btn-login');
+  const btnLogout = document.getElementById('btn-logout');
+
+  btnShowRegister.onclick = () => { loginForm.style.display='none'; regForm.style.display='block'; document.getElementById('title').innerText='Crear cuenta'; };
+  btnShowLogin.onclick = () => { regForm.style.display='none'; loginForm.style.display='block'; document.getElementById('title').innerText='Iniciar sesión'; };
+
+  // Registro
+  btnRegister.onclick = async () => {
+    const email = document.getElementById('reg-email').value.trim();
+    const pass = document.getElementById('reg-password').value.trim();
+    if (!email || !pass || pass.length < 6) return alert('Email y contraseña (mín 6).');
+    try {
+      await createUserWithEmailAndPassword(auth, email, pass);
+      alert('Cuenta creada. Ya puedes iniciar sesión.');
+      btnShowLogin.click();
+    } catch (e) {
+      alert('Error registro: ' + e.message);
+    }
+  };
+
+  // Login
+  btnLogin.onclick = async () => {
+    const email = document.getElementById('email').value.trim();
+    const pass = document.getElementById('password').value.trim();
+    if (!email || !pass) return alert('Rellena ambos campos.');
+    try {
+      await signInWithEmailAndPassword(auth, email, pass);
+    } catch (e) {
+      alert('Error login: ' + e.message);
+    }
+  };
+
+  // Logout
+  btnLogout.onclick = async () => {
+    await signOut(auth);
+  };
+
+  // Observador de auth
+  let unsubscribeAires = null;
+  onAuthStateChanged(auth, user => {
+    if (user) {
+      // mostrar main
+      authUi.style.display = 'none';
+      main.style.display = 'block';
+      userEmailSpan.textContent = user.email;
+
+      // suscribirse a los aires de este usuario
+      const q = query(collection(db, 'aires'), where('uid','==', user.uid), orderBy('id','asc'));
+      if (unsubscribeAires) unsubscribeAires();
+      unsubscribeAires = onSnapshot(q, snapshot => {
+        const rows = [];
+        snapshot.forEach(docSnap => {
+          const d = docSnap.data();
+          rows.push({ id: docSnap.id, docId: docSnap.id, ...d });
+        });
+        renderTabla(rows);
+      });
+
+    } else {
+      // mostrar login
+      if (unsubscribeAires) unsubscribeAires();
+      authUi.style.display = 'block';
+      main.style.display = 'none';
+      userEmailSpan.textContent = '';
+    }
+  });
+
+  // ---------- CRUD en Firestore ----------
+  const tabla = document.getElementById('tabla-aires');
+  const btnSave = document.getElementById('btn-save');
+  const btnClear = document.getElementById('btn-clear');
+
+  let editingDocId = null;
+
+  btnSave.onclick = async () => {
+    const id = Number(document.getElementById('aire-id').value);
+    const marca = document.getElementById('aire-marca').value.trim();
+    const modelo = document.getElementById('aire-modelo').value.trim();
+    const capacidad = parseFloat(document.getElementById('aire-capacidad').value);
+    const precio = parseFloat(document.getElementById('aire-precio').value);
+    const unidades = Number(document.getElementById('aire-unidades').value);
+
+    if (!id || !marca || !modelo || isNaN(capacidad) || isNaN(precio) || isNaN(unidades)) {
+      return alert('Llena todos los campos correctamente.');
+    }
+
+    const user = auth.currentUser;
+    if (!user) return alert('No estás autenticado.');
+
+    const data = { id, marca, modelo, capacidad, precio, unidades, uid: user.uid, createdAt: new Date() };
+
+    try {
+      if (editingDocId) {
+        const dRef = doc(db, 'aires', editingDocId);
+        await updateDoc(dRef, data);
+        editingDocId = null;
+      } else {
+        await addDoc(collection(db, 'aires'), data);
+      }
+      limpiarForm();
+    } catch (e) {
+      alert('Error guardando: ' + e.message);
+    }
+  };
+
+  btnClear.onclick = () => {
+    editingDocId = null;
+    limpiarForm();
+  };
+
+  function renderTabla(rows) {
+    tabla.innerHTML = '';
+    rows.forEach(r => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${r.id}</td>
+        <td>${r.marca}</td>
+        <td>${r.modelo}</td>
+        <td>${r.capacidad}</td>
+        <td>${r.precio}</td>
+        <td>${r.unidades}</td>
+        <td>
+          <button class="btn-edit" data-id="${r.docId}">Editar</button>
+          <button class="btn-delete" data-id="${r.docId}">Eliminar</button>
+        </td>
+      `;
+      tabla.appendChild(tr);
+    });
+
+    // eventos botones
+    document.querySelectorAll('.btn-edit').forEach(b => b.onclick = async (e) => {
+      const docId = e.target.dataset.id;
+      const docRef = doc(db,'aires',docId);
+      // traer datos manualmente (alternativa: pasar row)
+      const snap = await getDocs(query(collection(db,'aires'), where('_name_','==',docId)));
+      // simpler: use onSnapshot data already present: we'll retrieve doc via getDocs above
+      // pero para simplicidad, traer documento por id con getDoc sería ideal. Aquí usamos getDocs hack.
+      // En SDK modular, getDoc es preferible; pero para evitar import extra, buscaremos en lista actual:
+      // Mejor: hacemos una búsqueda en la tabla DOM:
+      // (Vamos a usar snapshot rows: podríamos keep rows variable; para concretar, pedimos el doc con getDocs)
+      try {
+        // mejor usar getDocs with doc reference:
+        // (import getDoc)
+        // To avoid expanding imports here, we'll simply fill form by reading DOM row.
+        const row = e.target.closest('tr').children;
+        document.getElementById('aire-id').value = row[0].innerText;
+        document.getElementById('aire-marca').value = row[1].innerText;
+        document.getElementById('aire-modelo').value = row[2].innerText;
+        document.getElementById('aire-capacidad').value = row[3].innerText;
+        document.getElementById('aire-precio').value = row[4].innerText;
+        document.getElementById('aire-unidades').value = row[5].innerText;
+        editingDocId = docId;
+      } catch (err) {
+        alert('Error al editar: ' + err.message);
+      }
+    });
+
+    document.querySelectorAll('.btn-delete').forEach(b => b.onclick = async (e) => {
+      const docId = e.target.dataset.id;
+      if (!confirm('Eliminar este registro?')) return;
+      try {
+        await deleteDoc(doc(db,'aires',docId));
+      } catch (err) {
+        alert('Error al eliminar: ' + err.message);
+      }
+    });
+  }
+
+  function limpiarForm() {
+    document.getElementById('aire-id').value = '';
+    document.getElementById('aire-marca').value = '';
+    document.getElementById('aire-modelo').value = '';
+    document.getElementById('aire-capacidad').value = '';
+    document.getElementById('aire-precio').value = '';
+    document.getElementById('aire-unidades').value = '';
+  }
+
+</script>
+</body>
+</html>
